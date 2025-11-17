@@ -37,8 +37,20 @@ const testCasesSchema = {
     items: testCaseSchema
 };
 
-export const generateTestCasesFromText = async (requirements: string): Promise<TestCase[]> => {
-    const prompt = `Based on the following requirements, generate a comprehensive list of test cases. The requirements are: \n\n${requirements}`;
+export const generateTestCasesFromText = async (requirements: string, styleGuide?: string): Promise<TestCase[]> => {
+    let prompt = `Based on the following requirements, generate a comprehensive list of test cases. The requirements are: \n\n${requirements}`;
+    
+    if (styleGuide) {
+        prompt = `You are a test case generator. Your task is to generate test cases based on the provided requirements, strictly adhering to the style, format, and tone of the examples given in the "Style Guide".
+
+--- STYLE GUIDE EXAMPLES ---
+${styleGuide}
+--- END OF STYLE GUIDE ---
+
+Now, generate new test cases for the following requirements:
+${requirements}`;
+    }
+
 
     try {
         const response = await ai.models.generateContent({
@@ -58,12 +70,23 @@ export const generateTestCasesFromText = async (requirements: string): Promise<T
     }
 };
 
-export const generateTestCasesFromScreenshot = async (image: { data: string; mimeType: string }): Promise<TestCase[]> => {
+export const generateTestCasesFromScreenshot = async (image: { data: string; mimeType: string }, styleGuide?: string): Promise<TestCase[]> => {
     const imagePart = {
         inlineData: { data: image.data, mimeType: image.mimeType },
     };
+    
+    let textPrompt = "Analyze the following screenshot of a user interface. Based on the visible UI elements and their potential functionality, generate a comprehensive list of test cases.";
+
+    if (styleGuide) {
+        textPrompt = `Analyze the following screenshot. Generate test cases based on the UI elements, strictly adhering to the style, format, and tone of the examples given in the "Style Guide".
+
+--- STYLE GUIDE EXAMPLES ---
+${styleGuide}
+--- END OF STYLE GUIDE ---`;
+    }
+
     const textPart = {
-        text: "Analyze the following screenshot of a user interface. Based on the visible UI elements and their potential functionality, generate a comprehensive list of test cases."
+        text: textPrompt
     };
 
     try {

@@ -1,5 +1,6 @@
 
 import React, { useState, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { Header } from './components/Header';
 import { InputSection } from './components/InputSection';
 import { TestCaseDisplay } from './components/TestCaseDisplay';
@@ -12,15 +13,32 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleGenerate = useCallback(async (mode: InputMode, data: string | File) => {
+  const handleGenerate = useCallback(async (mode: InputMode, data: string | File, styleFile: File | null) => {
     setIsLoading(true);
     setError(null);
     setTestCases([]);
 
     try {
+      let styleGuideContent: string | undefined = undefined;
+      if (styleFile) {
+        if (styleFile.name.toLowerCase().endsWith('.xlsx')) {
+          const arrayBuffer = await styleFile.arrayBuffer();
+          const workbook = XLSX.read(arrayBuffer, { type: 'buffer' });
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
+          
+          styleGuideContent = jsonData.map(row => {
+              return `ID: ${row['Test Case ID'] || 'N/A'}\nTitle: ${row['Title'] || 'N/A'}\nSteps: ${row['Steps'] || 'N/A'}\nExpected Result: ${row['Expected Result'] || 'N/A'}`;
+          }).join('\n\n---\n\n');
+        } else {
+          styleGuideContent = await styleFile.text();
+        }
+      }
+
       let result: TestCase[] = [];
       if (mode === InputMode.Text && typeof data === 'string') {
-        result = await generateTestCasesFromText(data);
+        result = await generateTestCasesFromText(data, styleGuideContent);
       } else if (mode === InputMode.Screenshot && data instanceof File) {
         const imageData = await new Promise<{ data: string; mimeType: string }>((resolve, reject) => {
           const reader = new FileReader();
@@ -34,7 +52,7 @@ const App: React.FC = () => {
           reader.onerror = (error) => reject(error);
           reader.readAsDataURL(data);
         });
-        result = await generateTestCasesFromScreenshot(imageData);
+        result = await generateTestCasesFromScreenshot(imageData, styleGuideContent);
       }
       setTestCases(result);
     } catch (err) {

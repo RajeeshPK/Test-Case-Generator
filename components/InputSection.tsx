@@ -1,11 +1,11 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { InputMode } from '../types';
 import { TextIcon } from './icons/TextIcon';
 import { ImageIcon } from './icons/ImageIcon';
 
 interface InputSectionProps {
-  onGenerate: (mode: InputMode, data: string | File) => void;
+  onGenerate: (mode: InputMode, data: string | File, styleFile: File | null) => void;
   isLoading: boolean;
 }
 
@@ -14,6 +14,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [styleFile, setStyleFile] = useState<File | null>(null);
+  const styleFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -27,15 +29,29 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
     }
   };
 
+  const handleStyleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+        setStyleFile(selectedFile);
+    }
+  };
+
+  const handleClearStyleFile = () => {
+    setStyleFile(null);
+    if (styleFileInputRef.current) {
+        styleFileInputRef.current.value = '';
+    }
+  };
+
   const handleGenerateClick = useCallback(() => {
     if (isLoading) return;
 
     if (mode === InputMode.Text && text.trim()) {
-      onGenerate(InputMode.Text, text);
+      onGenerate(InputMode.Text, text, styleFile);
     } else if (mode === InputMode.Screenshot && file) {
-      onGenerate(InputMode.Screenshot, file);
+      onGenerate(InputMode.Screenshot, file, styleFile);
     }
-  }, [mode, text, file, isLoading, onGenerate]);
+  }, [mode, text, file, styleFile, isLoading, onGenerate]);
   
   const isGenerateDisabled = isLoading || (mode === InputMode.Text && !text.trim()) || (mode === InputMode.Screenshot && !file);
 
@@ -85,6 +101,36 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
           </div>
         )}
       </div>
+      
+      <div className="mt-6">
+        <label htmlFor="style-guide-file" className="block mb-2 text-sm font-medium text-gray-300">
+            Upload Style Guide (Optional)
+        </label>
+        <div className="relative">
+            <input 
+                className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-900/50 file:text-blue-300 hover:file:bg-blue-800/50 cursor-pointer border border-gray-600 rounded-lg bg-gray-900/70 focus:outline-none pr-10" 
+                id="style-guide-file" 
+                type="file"
+                onChange={handleStyleFileChange}
+                accept=".txt,.md,.xlsx"
+                disabled={isLoading}
+                ref={styleFileInputRef}
+            />
+            {styleFile && (
+                <button 
+                    onClick={handleClearStyleFile} 
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-white"
+                    aria-label="Clear selected file"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                </button>
+            )}
+        </div>
+        <p className="mt-1 text-xs text-gray-500">Provide a .txt, .md, or .xlsx file with example test cases to match their style.</p>
+    </div>
+
 
       <div className="mt-6 flex justify-end">
         <button
