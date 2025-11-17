@@ -1,11 +1,10 @@
-
 import React, { useState, useCallback, useRef } from 'react';
 import { InputMode } from '../types';
 import { TextIcon } from './icons/TextIcon';
 import { ImageIcon } from './icons/ImageIcon';
 
 interface InputSectionProps {
-  onGenerate: (mode: InputMode, data: string | File, styleFile: File | null) => void;
+  onGenerate: (mode: InputMode, data: string | File, contextFile: File | null) => void;
   isLoading: boolean;
 }
 
@@ -14,8 +13,8 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [styleFile, setStyleFile] = useState<File | null>(null);
-  const styleFileInputRef = useRef<HTMLInputElement>(null);
+  const [contextFile, setContextFile] = useState<File | null>(null);
+  const contextFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -29,17 +28,17 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
     }
   };
 
-  const handleStyleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleContextFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-        setStyleFile(selectedFile);
+        setContextFile(selectedFile);
     }
   };
 
-  const handleClearStyleFile = () => {
-    setStyleFile(null);
-    if (styleFileInputRef.current) {
-        styleFileInputRef.current.value = '';
+  const handleClearContextFile = () => {
+    setContextFile(null);
+    if (contextFileInputRef.current) {
+        contextFileInputRef.current.value = '';
     }
   };
 
@@ -47,11 +46,11 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
     if (isLoading) return;
 
     if (mode === InputMode.Text && text.trim()) {
-      onGenerate(InputMode.Text, text, styleFile);
+      onGenerate(InputMode.Text, text, contextFile);
     } else if (mode === InputMode.Screenshot && file) {
-      onGenerate(InputMode.Screenshot, file, styleFile);
+      onGenerate(InputMode.Screenshot, file, contextFile);
     }
-  }, [mode, text, file, styleFile, isLoading, onGenerate]);
+  }, [mode, text, file, contextFile, isLoading, onGenerate]);
   
   const isGenerateDisabled = isLoading || (mode === InputMode.Text && !text.trim()) || (mode === InputMode.Screenshot && !file);
 
@@ -103,22 +102,22 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
       </div>
       
       <div className="mt-6">
-        <label htmlFor="style-guide-file" className="block mb-2 text-sm font-medium text-gray-300">
-            Upload Style Guide (Optional)
+        <label htmlFor="context-file-input" className="block mb-2 text-sm font-medium text-gray-300">
+            Upload Existing Test Suite (Optional)
         </label>
         <div className="relative">
             <input 
                 className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-900/50 file:text-blue-300 hover:file:bg-blue-800/50 cursor-pointer border border-gray-600 rounded-lg bg-gray-900/70 focus:outline-none pr-10" 
-                id="style-guide-file" 
+                id="context-file-input" 
                 type="file"
-                onChange={handleStyleFileChange}
+                onChange={handleContextFileChange}
                 accept=".txt,.md,.xlsx"
                 disabled={isLoading}
-                ref={styleFileInputRef}
+                ref={contextFileInputRef}
             />
-            {styleFile && (
+            {contextFile && (
                 <button 
-                    onClick={handleClearStyleFile} 
+                    onClick={handleClearContextFile} 
                     className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-white"
                     aria-label="Clear selected file"
                 >
@@ -128,7 +127,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
                 </button>
             )}
         </div>
-        <p className="mt-1 text-xs text-gray-500">Provide a .txt, .md, or .xlsx file with example test cases to match their style.</p>
+        <p className="mt-1 text-xs text-gray-500">Provide a .xlsx file with existing tests. The AI will match their style and avoid duplicates.</p>
     </div>
 
 

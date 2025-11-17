@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { TestCase } from '../types';
 
@@ -37,20 +36,36 @@ const testCasesSchema = {
     items: testCaseSchema
 };
 
-export const generateTestCasesFromText = async (requirements: string, styleGuide?: string): Promise<TestCase[]> => {
-    let prompt = `Based on the following requirements, generate a comprehensive list of test cases. The requirements are: \n\n${requirements}`;
-    
-    if (styleGuide) {
-        prompt = `You are a test case generator. Your task is to generate test cases based on the provided requirements, strictly adhering to the style, format, and tone of the examples given in the "Style Guide".
+const createPrompt = (requirements: string, contextType: string, existingTestsContext?: string): string => {
+    if (existingTestsContext) {
+        return `You are an expert Senior QA Engineer tasked with augmenting an existing test suite.
 
---- STYLE GUIDE EXAMPLES ---
-${styleGuide}
---- END OF STYLE GUIDE ---
+--- EXISTING TEST SUITE EXAMPLES ---
+${existingTestsContext}
+--- END OF EXISTING TEST SUITE ---
 
-Now, generate new test cases for the following requirements:
-${requirements}`;
+First, carefully analyze the EXISTING TEST SUITE above to understand the current testing scope, format, style, and ID conventions.
+
+Next, review the following NEW ${contextType}:
+--- NEW ${contextType} ---
+${requirements}
+--- END OF NEW ${contextType} ---
+
+Your goal is to generate **only the new, unique test cases** required to cover the NEW ${contextType} that are not already covered by the EXISTING TEST SUITE.
+
+Key Instructions:
+1.  **Avoid Duplication:** Do not generate test cases for functionality that is already adequately covered in the existing suite.
+2.  **Match Style:** Ensure the generated test cases precisely match the style, format, tone, and ID-naming convention of the existing ones.
+3.  **Gap Analysis:** Focus exclusively on filling the gaps in test coverage based on the new ${contextType}.
+4.  **Empty Response:** If the new ${contextType} are already fully covered by the existing suite, you MUST return an empty JSON array.
+
+Generate the new test cases based on these instructions.`;
     }
+    return `You are an expert Senior QA Engineer. Based on the following requirements, generate a comprehensive list of test cases. The requirements are: \n\n${requirements}`;
+};
 
+export const generateTestCasesFromText = async (requirements: string, existingTestsContext?: string): Promise<TestCase[]> => {
+    const prompt = createPrompt(requirements, "REQUIREMENTS", existingTestsContext);
 
     try {
         const response = await ai.models.generateContent({
@@ -70,20 +85,12 @@ ${requirements}`;
     }
 };
 
-export const generateTestCasesFromScreenshot = async (image: { data: string; mimeType: string }, styleGuide?: string): Promise<TestCase[]> => {
+export const generateTestCasesFromScreenshot = async (image: { data: string; mimeType: string }, existingTestsContext?: string): Promise<TestCase[]> => {
     const imagePart = {
         inlineData: { data: image.data, mimeType: image.mimeType },
     };
     
-    let textPrompt = "Analyze the following screenshot of a user interface. Based on the visible UI elements and their potential functionality, generate a comprehensive list of test cases.";
-
-    if (styleGuide) {
-        textPrompt = `Analyze the following screenshot. Generate test cases based on the UI elements, strictly adhering to the style, format, and tone of the examples given in the "Style Guide".
-
---- STYLE GUIDE EXAMPLES ---
-${styleGuide}
---- END OF STYLE GUIDE ---`;
-    }
+    const textPrompt = createPrompt("Analyze the following screenshot of a user interface. Based on the visible UI elements and their potential functionality, generate test cases.", "UI SCREENSHOT", existingTestsContext);
 
     const textPart = {
         text: textPrompt

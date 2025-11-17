@@ -1,4 +1,3 @@
-
 import fs from 'fs/promises';
 import path from 'path';
 import process from 'process';
@@ -25,7 +24,7 @@ const getMimeType = (filePath: string): string => {
 
 const formatTestCases = (testCases: TestCase[]): string => {
     if (!testCases || testCases.length === 0) {
-        return "No test cases were generated.";
+        return "No new test cases were generated.";
     }
     return testCases.map(tc => `
 ## ${tc.id}: ${tc.title}
@@ -84,22 +83,22 @@ const main = async () => {
         args.splice(outFlagIndex, 2);
     }
 
-    const styleFlagIndex = args.indexOf('--style');
-    let styleGuideFile: string | null = null;
-    if (styleFlagIndex > -1) {
-        if (styleFlagIndex + 1 >= args.length) {
-            console.error("Error: --style flag requires a filepath.");
+    const existingSuiteFlagIndex = args.indexOf('--existing-suite');
+    let existingSuiteFile: string | null = null;
+    if (existingSuiteFlagIndex > -1) {
+        if (existingSuiteFlagIndex + 1 >= args.length) {
+            console.error("Error: --existing-suite flag requires a filepath.");
             process.exit(1);
         }
-        styleGuideFile = args[styleFlagIndex + 1];
-        args.splice(styleFlagIndex, 2);
+        existingSuiteFile = args[existingSuiteFlagIndex + 1];
+        args.splice(existingSuiteFlagIndex, 2);
     }
 
 
     if (args.length < 2) {
         console.error('Usage:');
-        console.error('  ts-node cli.ts text "<requirements>" [--style <path/to/guide.txt>] [--out <filename.xlsx>]');
-        console.error('  ts-node cli.ts screenshot <path/to/image.png> [--style <path/to/guide.txt>] [--out <filename.xlsx>]');
+        console.error('  ts-node cli.ts text "<requirements>" [--existing-suite <path/to/suite.xlsx>] [--out <filename.xlsx>]');
+        console.error('  ts-node cli.ts screenshot <path/to/image.png> [--existing-suite <path/to/suite.xlsx>] [--out <filename.xlsx>]');
         process.exit(1);
     }
 
@@ -111,39 +110,43 @@ const main = async () => {
     console.log('---------------------------------');
 
     try {
-        let styleGuideContent: string | undefined = undefined;
-        if (styleGuideFile) {
-            console.log(`\n📄 Loading style guide from: ${styleGuideFile}`);
+        let existingTestsContext: string | undefined = undefined;
+        if (existingSuiteFile) {
+            console.log(`\n📄 Analyzing existing test suite: ${existingSuiteFile}`);
             try {
-                await fs.access(styleGuideFile);
-                if (styleGuideFile.toLowerCase().endsWith('.xlsx')) {
-                    const fileBuffer = await fs.readFile(styleGuideFile);
+                await fs.access(existingSuiteFile);
+                if (existingSuiteFile.toLowerCase().endsWith('.xlsx')) {
+                    const fileBuffer = await fs.readFile(existingSuiteFile);
                     const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
                     const sheetName = workbook.SheetNames[0];
                     const worksheet = workbook.Sheets[sheetName];
                     const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
 
-                    styleGuideContent = jsonData.map(row => {
-                        return `ID: ${row['Test Case ID'] || 'N/A'}\nTitle: ${row['Title'] || 'N/A'}\nSteps: ${row['Steps'] || 'N/A'}\nExpected Result: ${row['Expected Result'] || 'N/A'}`;
+                    existingTestsContext = jsonData.map(row => {
+                        const id = row['Test Case ID'] || row['ID'] || 'N/A';
+                        const title = row['Title'] || row['Summary'] || 'N/A';
+                        const steps = row['Steps'] || row['Reproduction Steps'] || 'N/A';
+                        const expected = row['Expected Result'] || row['Expected'] || 'N/A';
+                        return `ID: ${id}\nTitle: ${title}\nSteps: ${steps}\nExpected Result: ${expected}`;
                     }).join('\n\n---\n\n');
                 } else {
-                    styleGuideContent = await fs.readFile(styleGuideFile, 'utf-8');
+                    existingTestsContext = await fs.readFile(existingSuiteFile, 'utf-8');
                 }
             } catch (e) {
-                console.error(`Error: Could not read style guide file at ${styleGuideFile}`);
+                console.error(`Error: Could not read existing suite file at ${existingSuiteFile}`);
                 process.exit(1);
             }
         }
 
         let testCases: TestCase[] = [];
-        console.log(`\n⏳ Generating test cases for mode: ${mode}...`);
+        console.log(`\n⏳ Generating new test cases for mode: ${mode}...`);
 
         if (mode === 'text') {
             if (!input) {
                 console.error("Error: Text requirements cannot be empty.");
                 process.exit(1);
             }
-            testCases = await generateTestCasesFromText(input, styleGuideContent);
+            testCases = await generateTestCasesFromText(input, existingTestsContext);
         } else if (mode === 'screenshot') {
             const filePath = input;
             try {
@@ -156,19 +159,23 @@ const main = async () => {
             const base64Data = fileBuffer.toString('base64');
             const mimeType = getMimeType(filePath);
 
-            testCases = await generateTestCasesFromScreenshot({ data: base64Data, mimeType }, styleGuideContent);
+            testCases = await generateTestCasesFromScreenshot({ data: base64Data, mimeType }, existingTestsContext);
         } else {
             console.error(`❌ Unknown mode: "${mode}". Use 'text' or 'screenshot'.`);
             process.exit(1);
         }
 
-        console.log('\n✅ Generation Complete!');
-        
-        if (outputFile) {
-            writeToExcel(testCases, outputFile);
+        if (testCases.length === 0 && existingSuiteFile) {
+            console.log('\n✅ Coverage Analysis Complete!');
+            console.log('Your existing test suite appears to fully cover the provided requirements. No new test cases were generated.');
         } else {
-            console.log('\n--- Generated Test Cases ---');
-            console.log(formatTestCases(testCases));
+            console.log('\n✅ Generation Complete!');
+            if (outputFile) {
+                writeToExcel(testCases, outputFile);
+            } else {
+                console.log('\n--- Generated Test Cases ---');
+                console.log(formatTestCases(testCases));
+            }
         }
 
     } catch (error) {
