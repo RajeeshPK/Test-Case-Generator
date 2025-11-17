@@ -36,16 +36,51 @@ const testCasesSchema = {
     items: testCaseSchema
 };
 
-// In a real RAG system, the backend would fetch the relevant test cases based on the suiteId
-// and inject them into the prompt. Here, we simulate this by changing the prompt's instructions.
-const createPrompt = (requirements: string, contextType: string, suiteId?: string | null): string => {
-    if (suiteId) {
-        // This prompt now assumes a RAG backend has already found the most relevant
-        // existing test cases and is providing them as context.
-        return `You are an expert Senior QA Engineer using a Retrieval-Augmented Generation (RAG) system.
-The system has already retrieved the most relevant existing test cases based on the new requirements.
+// Mock Database to simulate a vector DB backend.
+const MOCK_TEST_SUITES_DB: { [key: string]: TestCase[] } = {
+    'suite-proj-apollo': [
+        { id: 'TC-APOLLO-001', title: 'User can view the main dashboard', steps: ['1. Log in', '2. Navigate to the dashboard URL'], expectedResult: 'The main dashboard with widgets is displayed.' },
+        { id: 'TC-APOLLO-002', title: 'User can log out from profile menu', steps: ['1. Click the profile icon', '2. Click "Log Out"'], expectedResult: 'User is redirected to the login page.' },
+    ],
+    'suite-proj-gemini': [
+        { id: 'TC-GEMINI-001', title: 'User can log in with valid credentials', steps: ['1. Enter valid email', '2. Enter valid password', '3. Click "Log In"'], expectedResult: 'User is successfully logged in and redirected to their dashboard.' },
+        { id: 'TC-GEMINI-002', title: 'User sees error on login with invalid password', steps: ['1. Enter valid email', '2. Enter an incorrect password', '3. Click "Log In"'], expectedResult: 'An error message "Invalid credentials" is shown below the password field.' },
+    ],
+    'suite-proj-voyager': [
+        { id: 'TC-VOYAGER-001', title: 'Generate a sales report for the last month', steps: ['1. Navigate to the "Reports" section', '2. Select "Sales Report"', '3. Set the date range to "Last Month"', '4. Click the "Generate" button'], expectedResult: 'A PDF of the sales report is downloaded.' },
+    ],
+};
 
-Your task is to analyze the following NEW ${contextType} and the retrieved context.
+
+// This function simulates the "Retrieval" part of RAG.
+// In a real system, this would be a backend call that performs a semantic search.
+const getRetrievedContext = (suiteId: string): string => {
+    const suiteTests = MOCK_TEST_SUITES_DB[suiteId];
+    if (!suiteTests || suiteTests.length === 0) {
+        return "No existing test cases were found for this suite.";
+    }
+
+    // Format the retrieved tests into a string for the prompt
+    const contextString = suiteTests.map(tc =>
+        `ID: ${tc.id}\nTitle: ${tc.title}\nSteps: ${tc.steps.join('; ')}\nExpected Result: ${tc.expectedResult}`
+    ).join('\n---\n');
+
+    return contextString;
+};
+
+
+// Updated createPrompt to accept the actual retrieved context
+const createPrompt = (requirements: string, contextType: string, retrievedContext?: string | null): string => {
+    if (retrievedContext) {
+        // This prompt now INCLUDES the retrieved context, making the gap analysis real.
+        return `You are an expert Senior QA Engineer performing a gap analysis.
+Your task is to analyze new requirements against a set of existing, relevant test cases retrieved from our test suite.
+
+--- RETRIEVED CONTEXT (EXISTING TESTS) ---
+${retrievedContext}
+--- END OF RETRIEVED CONTEXT ---
+
+Now, analyze the following NEW ${contextType}.
 --- NEW ${contextType} ---
 ${requirements}
 --- END OF NEW ${contextType} ---
@@ -53,9 +88,9 @@ ${requirements}
 Based on this, generate **only the new, unique test cases** required to fill coverage gaps.
 
 Key Instructions:
-1.  **Analyze Retrieved Context:** Assume the context provided by the RAG system is relevant. Your primary goal is to avoid duplicating the functionality shown in that context.
-2.  **Match Style:** Ensure the generated test cases match the style, format, and tone of the (unseen) retrieved examples.
-3.  **Gap Analysis:** Focus exclusively on what's missing.
+1.  **Analyze Context:** Carefully review the existing tests in the RETRIEVED CONTEXT. Your primary goal is to avoid duplicating functionality already covered by them.
+2.  **Match Style:** Ensure the generated test cases match the style, format, and tone of the retrieved examples.
+3.  **Gap Analysis:** Focus exclusively on requirements not covered by the existing tests.
 4.  **Empty Response:** If the new ${contextType} is already fully covered by the retrieved context, you MUST return an empty JSON array.
 
 Generate the new test cases based on these instructions.`;
@@ -64,7 +99,11 @@ Generate the new test cases based on these instructions.`;
 };
 
 export const generateTestCasesFromText = async (requirements: string, suiteId?: string | null): Promise<TestCase[]> => {
-    const prompt = createPrompt(requirements, "REQUIREMENTS", suiteId);
+    let retrievedContext: string | null = null;
+    if (suiteId) {
+        retrievedContext = getRetrievedContext(suiteId);
+    }
+    const prompt = createPrompt(requirements, "REQUIREMENTS", retrievedContext);
 
     try {
         const response = await ai.models.generateContent({
@@ -87,11 +126,16 @@ export const generateTestCasesFromText = async (requirements: string, suiteId?: 
 };
 
 export const generateTestCasesFromScreenshot = async (image: { data: string; mimeType: string }, suiteId?: string | null): Promise<TestCase[]> => {
+    let retrievedContext: string | null = null;
+    if (suiteId) {
+        retrievedContext = getRetrievedContext(suiteId);
+    }
+    
     const imagePart = {
         inlineData: { data: image.data, mimeType: image.mimeType },
     };
     
-    const textPrompt = createPrompt("Analyze the following screenshot of a user interface. Based on the visible UI elements and their potential functionality, generate test cases.", "UI SCREENSHOT", suiteId);
+    const textPrompt = createPrompt("Analyze the following screenshot of a user interface. Based on the visible UI elements and their potential functionality, generate test cases.", "UI SCREENSHOT", retrievedContext);
 
     const textPart = {
         text: textPrompt
