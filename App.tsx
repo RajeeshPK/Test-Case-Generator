@@ -1,5 +1,4 @@
 import React, { useState, useCallback } from 'react';
-import * as XLSX from 'xlsx';
 import { Header } from './components/Header';
 import { InputSection } from './components/InputSection';
 import { TestCaseDisplay } from './components/TestCaseDisplay';
@@ -13,38 +12,23 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [generationStatus, setGenerationStatus] = useState<'idle' | 'success' | 'no_new_cases_needed'>('idle');
 
-  const handleGenerate = useCallback(async (mode: InputMode, data: string | File, contextFile: File | null) => {
+  const handleGenerate = useCallback(async (mode: InputMode, data: string | File, suiteId: string | null) => {
     setIsLoading(true);
     setError(null);
     setTestCases([]);
     setGenerationStatus('idle');
 
     try {
-      let existingTestsContext: string | undefined = undefined;
-      if (contextFile) {
-        if (contextFile.name.toLowerCase().endsWith('.xlsx')) {
-          const arrayBuffer = await contextFile.arrayBuffer();
-          const workbook = XLSX.read(arrayBuffer, { type: 'buffer' });
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
-          
-          existingTestsContext = jsonData.map(row => {
-              // Note: Using a flexible set of potential column names
-              const id = row['Test Case ID'] || row['ID'] || 'N/A';
-              const title = row['Title'] || row['Summary'] || 'N/A';
-              const steps = row['Steps'] || row['Reproduction Steps'] || 'N/A';
-              const expected = row['Expected Result'] || row['Expected'] || 'N/A';
-              return `ID: ${id}\nTitle: ${title}\nSteps: ${steps}\nExpected Result: ${expected}`;
-          }).join('\n\n---\n\n');
-        } else {
-          existingTestsContext = await contextFile.text();
-        }
-      }
+      // In a real RAG system, the suiteId would be passed to a backend.
+      // The backend would use this ID to retrieve relevant test cases.
+      // For this simulation, we'll pass it to the service layer, which
+      // will adapt its prompt based on whether a suite is selected.
+      console.log(`Generating with mode: ${mode}, suiteId: ${suiteId}`);
 
       let result: TestCase[] = [];
       if (mode === InputMode.Text && typeof data === 'string') {
-        result = await generateTestCasesFromText(data, existingTestsContext);
+        // The service now takes a suiteId instead of the full text context.
+        result = await generateTestCasesFromText(data, suiteId);
       } else if (mode === InputMode.Screenshot && data instanceof File) {
         const imageData = await new Promise<{ data: string; mimeType: string }>((resolve, reject) => {
           const reader = new FileReader();
@@ -58,10 +42,10 @@ const App: React.FC = () => {
           reader.onerror = (error) => reject(error);
           reader.readAsDataURL(data);
         });
-        result = await generateTestCasesFromScreenshot(imageData, existingTestsContext);
+        result = await generateTestCasesFromScreenshot(imageData, suiteId);
       }
       setTestCases(result);
-      if (result.length === 0 && contextFile) {
+      if (result.length === 0 && suiteId) {
         setGenerationStatus('no_new_cases_needed');
       } else {
         setGenerationStatus('success');
@@ -84,6 +68,7 @@ const App: React.FC = () => {
       <Header />
       <main className="container mx-auto p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
+          {/* onGenerate now expects a suiteId instead of a contextFile */}
           <InputSection onGenerate={handleGenerate} isLoading={isLoading} />
           
           <div className="mt-12">
@@ -102,7 +87,7 @@ const App: React.FC = () => {
                     </svg>
                     <h3 className="mt-4 text-lg font-medium text-white">Coverage Analysis Complete</h3>
                     <p className="mt-1 text-sm text-green-300">
-                        Good news! Your existing test suite appears to fully cover the provided requirements. No new test cases were needed.
+                        Good news! Based on the selected test suite, your requirements appear to be fully covered. No new test cases were needed.
                     </p>
                 </div>
             )}

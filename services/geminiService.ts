@@ -36,36 +36,35 @@ const testCasesSchema = {
     items: testCaseSchema
 };
 
-const createPrompt = (requirements: string, contextType: string, existingTestsContext?: string): string => {
-    if (existingTestsContext) {
-        return `You are an expert Senior QA Engineer tasked with augmenting an existing test suite.
+// In a real RAG system, the backend would fetch the relevant test cases based on the suiteId
+// and inject them into the prompt. Here, we simulate this by changing the prompt's instructions.
+const createPrompt = (requirements: string, contextType: string, suiteId?: string | null): string => {
+    if (suiteId) {
+        // This prompt now assumes a RAG backend has already found the most relevant
+        // existing test cases and is providing them as context.
+        return `You are an expert Senior QA Engineer using a Retrieval-Augmented Generation (RAG) system.
+The system has already retrieved the most relevant existing test cases based on the new requirements.
 
---- EXISTING TEST SUITE EXAMPLES ---
-${existingTestsContext}
---- END OF EXISTING TEST SUITE ---
-
-First, carefully analyze the EXISTING TEST SUITE above to understand the current testing scope, format, style, and ID conventions.
-
-Next, review the following NEW ${contextType}:
+Your task is to analyze the following NEW ${contextType} and the retrieved context.
 --- NEW ${contextType} ---
 ${requirements}
 --- END OF NEW ${contextType} ---
 
-Your goal is to generate **only the new, unique test cases** required to cover the NEW ${contextType} that are not already covered by the EXISTING TEST SUITE.
+Based on this, generate **only the new, unique test cases** required to fill coverage gaps.
 
 Key Instructions:
-1.  **Avoid Duplication:** Do not generate test cases for functionality that is already adequately covered in the existing suite.
-2.  **Match Style:** Ensure the generated test cases precisely match the style, format, tone, and ID-naming convention of the existing ones.
-3.  **Gap Analysis:** Focus exclusively on filling the gaps in test coverage based on the new ${contextType}.
-4.  **Empty Response:** If the new ${contextType} are already fully covered by the existing suite, you MUST return an empty JSON array.
+1.  **Analyze Retrieved Context:** Assume the context provided by the RAG system is relevant. Your primary goal is to avoid duplicating the functionality shown in that context.
+2.  **Match Style:** Ensure the generated test cases match the style, format, and tone of the (unseen) retrieved examples.
+3.  **Gap Analysis:** Focus exclusively on what's missing.
+4.  **Empty Response:** If the new ${contextType} is already fully covered by the retrieved context, you MUST return an empty JSON array.
 
 Generate the new test cases based on these instructions.`;
     }
     return `You are an expert Senior QA Engineer. Based on the following requirements, generate a comprehensive list of test cases. The requirements are: \n\n${requirements}`;
 };
 
-export const generateTestCasesFromText = async (requirements: string, existingTestsContext?: string): Promise<TestCase[]> => {
-    const prompt = createPrompt(requirements, "REQUIREMENTS", existingTestsContext);
+export const generateTestCasesFromText = async (requirements: string, suiteId?: string | null): Promise<TestCase[]> => {
+    const prompt = createPrompt(requirements, "REQUIREMENTS", suiteId);
 
     try {
         const response = await ai.models.generateContent({
@@ -78,6 +77,8 @@ export const generateTestCasesFromText = async (requirements: string, existingTe
         });
 
         const jsonText = response.text.trim();
+        // Handle cases where the model correctly returns an empty string for an empty array
+        if (jsonText === "") return [];
         return JSON.parse(jsonText);
     } catch (error) {
         console.error("Error generating test cases from text:", error);
@@ -85,12 +86,12 @@ export const generateTestCasesFromText = async (requirements: string, existingTe
     }
 };
 
-export const generateTestCasesFromScreenshot = async (image: { data: string; mimeType: string }, existingTestsContext?: string): Promise<TestCase[]> => {
+export const generateTestCasesFromScreenshot = async (image: { data: string; mimeType: string }, suiteId?: string | null): Promise<TestCase[]> => {
     const imagePart = {
         inlineData: { data: image.data, mimeType: image.mimeType },
     };
     
-    const textPrompt = createPrompt("Analyze the following screenshot of a user interface. Based on the visible UI elements and their potential functionality, generate test cases.", "UI SCREENSHOT", existingTestsContext);
+    const textPrompt = createPrompt("Analyze the following screenshot of a user interface. Based on the visible UI elements and their potential functionality, generate test cases.", "UI SCREENSHOT", suiteId);
 
     const textPart = {
         text: textPrompt
@@ -107,6 +108,8 @@ export const generateTestCasesFromScreenshot = async (image: { data: string; mim
         });
         
         const jsonText = response.text.trim();
+        // Handle cases where the model correctly returns an empty string for an empty array
+        if (jsonText === "") return [];
         return JSON.parse(jsonText);
     } catch (error) {
         console.error("Error generating test cases from screenshot:", error);

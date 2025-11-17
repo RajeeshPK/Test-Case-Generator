@@ -4,18 +4,25 @@ import { TextIcon } from './icons/TextIcon';
 import { ImageIcon } from './icons/ImageIcon';
 
 interface InputSectionProps {
-  onGenerate: (mode: InputMode, data: string | File, contextFile: File | null) => void;
+  onGenerate: (mode: InputMode, data: string | File, suiteId: string | null) => void;
   isLoading: boolean;
 }
+
+// In a real app, this would be fetched from the backend.
+const MOCK_SUITES = [
+    { id: 'suite-proj-apollo', name: 'Project Apollo - Core Features' },
+    { id: 'suite-proj-gemini', name: 'Project Gemini - User Authentication' },
+    { id: 'suite-proj-voyager', name: 'Project Voyager - Reporting Module' },
+];
 
 export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) => {
   const [mode, setMode] = useState<InputMode>(InputMode.Text);
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [contextFile, setContextFile] = useState<File | null>(null);
-  const contextFileInputRef = useRef<HTMLInputElement>(null);
-
+  const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(MOCK_SUITES[0].id);
+  const [isIndexing, setIsIndexing] = useState<boolean>(false);
+  
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
@@ -28,31 +35,33 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
     }
   };
 
-  const handleContextFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-        setContextFile(selectedFile);
-    }
-  };
-
-  const handleClearContextFile = () => {
-    setContextFile(null);
-    if (contextFileInputRef.current) {
-        contextFileInputRef.current.value = '';
-    }
-  };
+  const handleIndexSuite = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const suiteFile = e.target.files?.[0];
+      if (suiteFile) {
+          setIsIndexing(true);
+          // In a real RAG application, you would upload this file to your backend
+          // for processing and indexing into a vector database.
+          console.log(`Uploading '${suiteFile.name}' for indexing...`);
+          // We simulate the indexing process with a timeout.
+          setTimeout(() => {
+              console.log("Indexing complete!");
+              setIsIndexing(false);
+              // You might refresh the list of suites from the backend here.
+          }, 3000); // Simulate a 3-second indexing job
+      }
+  }
 
   const handleGenerateClick = useCallback(() => {
-    if (isLoading) return;
+    if (isLoading || isIndexing) return;
 
     if (mode === InputMode.Text && text.trim()) {
-      onGenerate(InputMode.Text, text, contextFile);
+      onGenerate(InputMode.Text, text, selectedSuiteId);
     } else if (mode === InputMode.Screenshot && file) {
-      onGenerate(InputMode.Screenshot, file, contextFile);
+      onGenerate(InputMode.Screenshot, file, selectedSuiteId);
     }
-  }, [mode, text, file, contextFile, isLoading, onGenerate]);
+  }, [mode, text, file, selectedSuiteId, isLoading, isIndexing, onGenerate]);
   
-  const isGenerateDisabled = isLoading || (mode === InputMode.Text && !text.trim()) || (mode === InputMode.Screenshot && !file);
+  const isGenerateDisabled = isLoading || isIndexing || (mode === InputMode.Text && !text.trim()) || (mode === InputMode.Screenshot && !file);
 
   return (
     <div className="bg-gray-800/50 rounded-xl border border-gray-700 shadow-lg p-6 backdrop-blur-sm">
@@ -78,7 +87,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
             onChange={(e) => setText(e.target.value)}
             placeholder="Paste your feature requirements, user stories, or acceptance criteria here..."
             className="w-full h-48 p-4 bg-gray-900/70 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 resize-y"
-            disabled={isLoading}
+            disabled={isLoading || isIndexing}
           />
         ) : (
           <div className="flex flex-col items-center justify-center w-full">
@@ -95,39 +104,51 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
                   <p className="text-xs">PNG, JPG or GIF</p>
                 </div>
               )}
-              <input id="dropzone-file" type="file" className="hidden" onChange={handleFileChange} accept="image/*" disabled={isLoading} />
+              <input id="dropzone-file" type="file" className="hidden" onChange={handleFileChange} accept="image/*" disabled={isLoading || isIndexing} />
             </label>
           </div>
         )}
       </div>
       
-      <div className="mt-6">
-        <label htmlFor="context-file-input" className="block mb-2 text-sm font-medium text-gray-300">
-            Upload Existing Test Suite (Optional)
-        </label>
-        <div className="relative">
-            <input 
-                className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-900/50 file:text-blue-300 hover:file:bg-blue-800/50 cursor-pointer border border-gray-600 rounded-lg bg-gray-900/70 focus:outline-none pr-10" 
-                id="context-file-input" 
-                type="file"
-                onChange={handleContextFileChange}
-                accept=".txt,.md,.xlsx"
-                disabled={isLoading}
-                ref={contextFileInputRef}
-            />
-            {contextFile && (
-                <button 
-                    onClick={handleClearContextFile} 
-                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-white"
-                    aria-label="Clear selected file"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                    </svg>
-                </button>
-            )}
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+            <label htmlFor="suite-select" className="block mb-2 text-sm font-medium text-gray-300">
+                Select Contextual Test Suite
+            </label>
+            <select 
+                id="suite-select" 
+                value={selectedSuiteId ?? ''}
+                onChange={(e) => setSelectedSuiteId(e.target.value)}
+                className="bg-gray-900/70 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                disabled={isLoading || isIndexing}
+            >
+                {MOCK_SUITES.map(suite => (
+                    <option key={suite.id} value={suite.id}>{suite.name}</option>
+                ))}
+            </select>
+            <p className="mt-1 text-xs text-gray-500">The AI will use this suite for context and style matching.</p>
         </div>
-        <p className="mt-1 text-xs text-gray-500">Provide a .xlsx file with existing tests. The AI will match their style and avoid duplicates.</p>
+        <div>
+            <label htmlFor="index-file-input" className="block mb-2 text-sm font-medium text-gray-300">
+                {isIndexing ? 'Indexing New Suite...' : 'Index a New Test Suite'}
+            </label>
+             <div className="relative">
+                <input 
+                    className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-900/50 file:text-blue-300 hover:file:bg-blue-800/50 cursor-pointer border border-gray-600 rounded-lg bg-gray-900/70 focus:outline-none pr-10 disabled:opacity-50" 
+                    id="index-file-input" 
+                    type="file"
+                    onChange={handleIndexSuite}
+                    accept=".txt,.md,.xlsx"
+                    disabled={isLoading || isIndexing}
+                />
+                 {isIndexing && (
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                         <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                )}
+            </div>
+             <p className="mt-1 text-xs text-gray-500">Upload a large suite to make it available for selection.</p>
+        </div>
     </div>
 
 

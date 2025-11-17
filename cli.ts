@@ -83,22 +83,23 @@ const main = async () => {
         args.splice(outFlagIndex, 2);
     }
 
-    const existingSuiteFlagIndex = args.indexOf('--existing-suite');
-    let existingSuiteFile: string | null = null;
-    if (existingSuiteFlagIndex > -1) {
-        if (existingSuiteFlagIndex + 1 >= args.length) {
-            console.error("Error: --existing-suite flag requires a filepath.");
+    const suiteIdFlagIndex = args.indexOf('--suite-id');
+    let suiteId: string | null = null;
+    if (suiteIdFlagIndex > -1) {
+        if (suiteIdFlagIndex + 1 >= args.length) {
+            console.error("Error: --suite-id flag requires an identifier (e.g., 'project-apollo').");
             process.exit(1);
         }
-        existingSuiteFile = args[existingSuiteFlagIndex + 1];
-        args.splice(existingSuiteFlagIndex, 2);
+        suiteId = args[suiteIdFlagIndex + 1];
+        args.splice(suiteIdFlagIndex, 2);
     }
 
 
     if (args.length < 2) {
         console.error('Usage:');
-        console.error('  ts-node cli.ts text "<requirements>" [--existing-suite <path/to/suite.xlsx>] [--out <filename.xlsx>]');
-        console.error('  ts-node cli.ts screenshot <path/to/image.png> [--existing-suite <path/to/suite.xlsx>] [--out <filename.xlsx>]');
+        console.error('  ts-node cli.ts text "<requirements>" [--suite-id <suite-identifier>] [--out <filename.xlsx>]');
+        console.error('  ts-node cli.ts screenshot <path/to/image.png> [--suite-id <suite-identifier>] [--out <filename.xlsx>]');
+        console.error('\nNote: The --suite-id refers to a test suite managed by the RAG backend.');
         process.exit(1);
     }
 
@@ -110,32 +111,8 @@ const main = async () => {
     console.log('---------------------------------');
 
     try {
-        let existingTestsContext: string | undefined = undefined;
-        if (existingSuiteFile) {
-            console.log(`\n📄 Analyzing existing test suite: ${existingSuiteFile}`);
-            try {
-                await fs.access(existingSuiteFile);
-                if (existingSuiteFile.toLowerCase().endsWith('.xlsx')) {
-                    const fileBuffer = await fs.readFile(existingSuiteFile);
-                    const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
-                    const sheetName = workbook.SheetNames[0];
-                    const worksheet = workbook.Sheets[sheetName];
-                    const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
-
-                    existingTestsContext = jsonData.map(row => {
-                        const id = row['Test Case ID'] || row['ID'] || 'N/A';
-                        const title = row['Title'] || row['Summary'] || 'N/A';
-                        const steps = row['Steps'] || row['Reproduction Steps'] || 'N/A';
-                        const expected = row['Expected Result'] || row['Expected'] || 'N/A';
-                        return `ID: ${id}\nTitle: ${title}\nSteps: ${steps}\nExpected Result: ${expected}`;
-                    }).join('\n\n---\n\n');
-                } else {
-                    existingTestsContext = await fs.readFile(existingSuiteFile, 'utf-8');
-                }
-            } catch (e) {
-                console.error(`Error: Could not read existing suite file at ${existingSuiteFile}`);
-                process.exit(1);
-            }
+        if (suiteId) {
+            console.log(`\n📄 Using indexed test suite for context: ${suiteId}`);
         }
 
         let testCases: TestCase[] = [];
@@ -146,7 +123,7 @@ const main = async () => {
                 console.error("Error: Text requirements cannot be empty.");
                 process.exit(1);
             }
-            testCases = await generateTestCasesFromText(input, existingTestsContext);
+            testCases = await generateTestCasesFromText(input, suiteId);
         } else if (mode === 'screenshot') {
             const filePath = input;
             try {
@@ -159,15 +136,15 @@ const main = async () => {
             const base64Data = fileBuffer.toString('base64');
             const mimeType = getMimeType(filePath);
 
-            testCases = await generateTestCasesFromScreenshot({ data: base64Data, mimeType }, existingTestsContext);
+            testCases = await generateTestCasesFromScreenshot({ data: base64Data, mimeType }, suiteId);
         } else {
             console.error(`❌ Unknown mode: "${mode}". Use 'text' or 'screenshot'.`);
             process.exit(1);
         }
 
-        if (testCases.length === 0 && existingSuiteFile) {
+        if (testCases.length === 0 && suiteId) {
             console.log('\n✅ Coverage Analysis Complete!');
-            console.log('Your existing test suite appears to fully cover the provided requirements. No new test cases were generated.');
+            console.log(`Based on the context from suite '${suiteId}', your requirements appear to be fully covered.`);
         } else {
             console.log('\n✅ Generation Complete!');
             if (outputFile) {
