@@ -111,6 +111,38 @@ const getRetrievedContext = (suiteId: string): string => {
     return contextString;
 };
 
+export const generateRequirementsFromSuite = async (suiteId: string): Promise<string> => {
+    const suiteData = MOCK_DB[suiteId];
+    if (!suiteData || suiteData.testCases.length === 0) {
+        return "The selected test suite is currently empty. Please add test cases or select a different suite to generate requirements.";
+    }
+
+    const contextString = suiteData.testCases.map(tc =>
+        `ID: ${tc.id}\nTitle: ${tc.title}\nSteps: ${tc.steps.join('; ')}\nExpected Result: ${tc.expectedResult}`
+    ).join('\n---\n');
+
+    const prompt = `You are an expert Senior Product Manager. Your task is to analyze a list of detailed software test cases and reverse-engineer the high-level functional requirements they represent.
+    
+Distill the essence of the tests into a concise, clear set of user-centric requirements. Use markdown formatting (e.g., headings, bullet points) for readability.
+
+--- EXISTING TEST CASES ---
+${contextString}
+--- END OF EXISTING TEST CASES ---
+
+Based on the test cases provided, what are the core requirements of this feature or application?`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-pro',
+            contents: prompt,
+        });
+        return response.text;
+    } catch (error) {
+        console.error("Error generating requirements from suite:", error);
+        throw new Error("Failed to generate requirements from the AI. Please try again.");
+    }
+};
+
 
 // Updated createPrompt to accept the actual retrieved context
 const createPrompt = (requirements: string, contextType: string, retrievedContext?: string | null): string => {

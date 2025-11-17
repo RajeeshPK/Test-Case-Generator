@@ -3,7 +3,11 @@ import { Header } from './components/Header';
 import { InputSection } from './components/InputSection';
 import { TestCaseDisplay } from './components/TestCaseDisplay';
 import { LoadingSpinner } from './components/LoadingSpinner';
-import { generateTestCasesFromText, generateTestCasesFromScreenshot } from './services/geminiService';
+import { 
+  generateTestCasesFromText, 
+  generateTestCasesFromScreenshot,
+  generateRequirementsFromSuite 
+} from './services/geminiService';
 import { TestCase, InputMode } from './types';
 
 const App: React.FC = () => {
@@ -11,6 +15,9 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [generationStatus, setGenerationStatus] = useState<'idle' | 'success' | 'no_new_cases_needed'>('idle');
+  
+  const [text, setText] = useState<string>('');
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
 
   const handleGenerate = useCallback(async (mode: InputMode, data: string | File, suiteId: string | null) => {
     setIsLoading(true);
@@ -19,16 +26,16 @@ const App: React.FC = () => {
     setGenerationStatus('idle');
 
     try {
-      // In a real RAG system, the suiteId would be passed to a backend.
-      // The backend would use this ID to retrieve relevant test cases.
-      // For this simulation, we'll pass it to the service layer, which
-      // will adapt its prompt based on whether a suite is selected.
       console.log(`Generating with mode: ${mode}, suiteId: ${suiteId}`);
 
       let result: TestCase[] = [];
-      if (mode === InputMode.Text && typeof data === 'string') {
-        // The service now takes a suiteId instead of the full text context.
-        result = await generateTestCasesFromText(data, suiteId);
+      if (mode === InputMode.Text) {
+         if (!text.trim()) {
+            setError("Requirements text cannot be empty.");
+            setIsLoading(false);
+            return;
+        }
+        result = await generateTestCasesFromText(text, suiteId);
       } else if (mode === InputMode.Screenshot && data instanceof File) {
         const imageData = await new Promise<{ data: string; mimeType: string }>((resolve, reject) => {
           const reader = new FileReader();
@@ -57,6 +64,25 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  }, [text]);
+  
+  const handleAnalyzeSuite = useCallback(async (suiteId: string | null) => {
+    if (!suiteId) return;
+    setIsAnalyzing(true);
+    setError(null);
+    setText(''); // Clear existing text
+    setTestCases([]); // Clear generated test cases
+    setGenerationStatus('idle');
+
+    try {
+        const requirements = await generateRequirementsFromSuite(suiteId);
+        setText(requirements);
+    } catch (err) {
+        console.error(err);
+        setError(err instanceof Error ? err.message : 'An unknown error occurred during analysis.');
+    } finally {
+        setIsAnalyzing(false);
+    }
   }, []);
 
   const showTestCaseDisplay = !isLoading && !error && generationStatus === 'success' && testCases.length > 0;
@@ -68,14 +94,20 @@ const App: React.FC = () => {
       <Header />
       <main className="container mx-auto p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
-          {/* onGenerate now expects a suiteId instead of a contextFile */}
-          <InputSection onGenerate={handleGenerate} isLoading={isLoading} />
+          <InputSection 
+            onGenerate={handleGenerate} 
+            isLoading={isLoading}
+            text={text}
+            onTextChange={setText}
+            isAnalyzing={isAnalyzing}
+            onAnalyzeSuite={handleAnalyzeSuite} 
+          />
           
           <div className="mt-12">
             {isLoading && <LoadingSpinner />}
             {error && (
                <div className="bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg text-center">
-                 <p className="font-bold">Generation Failed</p>
+                 <p className="font-bold">Action Failed</p>
                  <p className="text-sm">{error}</p>
                </div>
             )}

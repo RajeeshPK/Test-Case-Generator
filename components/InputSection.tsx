@@ -3,16 +3,27 @@ import { InputMode } from '../types';
 import { TextIcon } from './icons/TextIcon';
 import { ImageIcon } from './icons/ImageIcon';
 import { getSuites, registerNewSuite } from '../services/geminiService';
+import { AnalyzeIcon } from './icons/AnalyzeIcon';
 
 
 interface InputSectionProps {
   onGenerate: (mode: InputMode, data: string | File, suiteId: string | null) => void;
   isLoading: boolean;
+  text: string;
+  onTextChange: (text: string) => void;
+  isAnalyzing: boolean;
+  onAnalyzeSuite: (suiteId: string | null) => void;
 }
 
-export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) => {
+export const InputSection: React.FC<InputSectionProps> = ({ 
+  onGenerate, 
+  isLoading,
+  text,
+  onTextChange,
+  isAnalyzing,
+  onAnalyzeSuite,
+}) => {
   const [mode, setMode] = useState<InputMode>(InputMode.Text);
-  const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   
@@ -64,32 +75,25 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
   
   const handleSaveNewSuite = async () => {
     if (!newSuiteName.trim()) return;
-
-    // 1. "Inform" the backend by calling the service.
-    // The service now handles ID generation and returns the new suite object.
     const newSuite = await registerNewSuite(newSuiteName.trim());
-    
-    // 2. Update component state with the confirmed new suite
     setSuites(prevSuites => [...prevSuites, newSuite]);
     setSelectedSuiteId(newSuite.id);
-    
-    // 3. Reset UI
     setNewSuiteName('');
     setIsCreatingSuite(false);
   };
 
 
   const handleGenerateClick = useCallback(() => {
-    if (isLoading || isIndexing || isCreatingSuite) return;
+    if (isLoading || isIndexing || isCreatingSuite || isAnalyzing) return;
 
     if (mode === InputMode.Text && text.trim()) {
       onGenerate(InputMode.Text, text, selectedSuiteId);
     } else if (mode === InputMode.Screenshot && file) {
       onGenerate(InputMode.Screenshot, file, selectedSuiteId);
     }
-  }, [mode, text, file, selectedSuiteId, isLoading, isIndexing, isCreatingSuite, onGenerate]);
+  }, [mode, text, file, selectedSuiteId, isLoading, isIndexing, isCreatingSuite, isAnalyzing, onGenerate]);
   
-  const isGenerateDisabled = isLoading || isIndexing || isCreatingSuite || (mode === InputMode.Text && !text.trim()) || (mode === InputMode.Screenshot && !file);
+  const isGenerateDisabled = isLoading || isIndexing || isCreatingSuite || isAnalyzing || (mode === InputMode.Text && !text.trim()) || (mode === InputMode.Screenshot && !file);
 
   return (
     <div className="bg-gray-800/50 rounded-xl border border-gray-700 shadow-lg p-6 backdrop-blur-sm">
@@ -112,10 +116,10 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
         {mode === InputMode.Text ? (
           <textarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Paste your feature requirements, user stories, or acceptance criteria here..."
+            onChange={(e) => onTextChange(e.target.value)}
+            placeholder="Paste your feature requirements, user stories, or acceptance criteria here... Or select a suite below and generate requirements from it."
             className="w-full h-48 p-4 bg-gray-900/70 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 resize-y"
-            disabled={isLoading || isIndexing || isCreatingSuite}
+            disabled={isLoading || isIndexing || isCreatingSuite || isAnalyzing}
           />
         ) : (
           <div className="flex flex-col items-center justify-center w-full">
@@ -132,7 +136,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
                   <p className="text-xs">PNG, JPG or GIF</p>
                 </div>
               )}
-              <input id="dropzone-file" type="file" className="hidden" onChange={handleFileChange} accept="image/*" disabled={isLoading || isIndexing || isCreatingSuite} />
+              <input id="dropzone-file" type="file" className="hidden" onChange={handleFileChange} accept="image/*" disabled={isLoading || isIndexing || isCreatingSuite || isAnalyzing} />
             </label>
           </div>
         )}
@@ -146,7 +150,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
                 </label>
                 <button 
                     onClick={() => setIsCreatingSuite(true)}
-                    disabled={isLoading || isIndexing || isCreatingSuite}
+                    disabled={isLoading || isIndexing || isCreatingSuite || isAnalyzing}
                     className="text-xs font-semibold text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     + New
@@ -157,13 +161,31 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
                 value={selectedSuiteId ?? ''}
                 onChange={(e) => setSelectedSuiteId(e.target.value)}
                 className="bg-gray-900/70 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                disabled={isLoading || isIndexing || isCreatingSuite}
+                disabled={isLoading || isIndexing || isCreatingSuite || isAnalyzing}
             >
                 {suites.map(suite => (
                     <option key={suite.id} value={suite.id}>{suite.name}</option>
                 ))}
             </select>
-            <p className="mt-1 text-xs text-gray-500">The AI will use this suite for context and style matching.</p>
+
+            <button
+                onClick={() => onAnalyzeSuite(selectedSuiteId)}
+                disabled={!selectedSuiteId || isLoading || isAnalyzing || isIndexing || isCreatingSuite}
+                className="mt-3 w-full text-sm font-medium text-purple-300 bg-purple-900/50 hover:bg-purple-800/60 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-lg flex items-center justify-center space-x-2 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500"
+            >
+                {isAnalyzing ? (
+                    <>
+                        <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin"></div>
+                        <span>Analyzing Suite...</span>
+                    </>
+                ) : (
+                    <>
+                        <AnalyzeIcon />
+                        <span>Generate Requirements from Suite</span>
+                    </>
+                )}
+            </button>
+
 
             {isCreatingSuite && (
                 <div className="mt-3 bg-gray-900/50 p-3 rounded-lg border border-gray-700">
@@ -193,7 +215,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
                     type="file"
                     onChange={handleIndexSuite}
                     accept=".txt,.md,.xlsx"
-                    disabled={isLoading || isIndexing || isCreatingSuite}
+                    disabled={isLoading || isIndexing || isCreatingSuite || isAnalyzing}
                 />
                  {isIndexing && (
                     <div className="absolute inset-y-0 right-0 flex items-center pr-3">
