@@ -1,0 +1,5 @@
+{
+  "name": "AI Test Case Generator",
+  "description": "An intelligent application that generates comprehensive test cases from user requirements or UI screenshots using the Gemini API. Streamline your quality assurance process with AI-powered test creation.",
+  "requestFramePermissions": []
+}
