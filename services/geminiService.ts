@@ -36,40 +36,75 @@ const testCasesSchema = {
     items: testCaseSchema
 };
 
-// Mock Database to simulate a vector DB backend.
-const MOCK_TEST_SUITES_DB: { [key: string]: TestCase[] } = {
-    'suite-proj-apollo': [
-        { id: 'TC-APOLLO-001', title: 'User can view the main dashboard', steps: ['1. Log in', '2. Navigate to the dashboard URL'], expectedResult: 'The main dashboard with widgets is displayed.' },
-        { id: 'TC-APOLLO-002', title: 'User can log out from profile menu', steps: ['1. Click the profile icon', '2. Click "Log Out"'], expectedResult: 'User is redirected to the login page.' },
-    ],
-    'suite-proj-gemini': [
-        { id: 'TC-GEMINI-001', title: 'User can log in with valid credentials', steps: ['1. Enter valid email', '2. Enter valid password', '3. Click "Log In"'], expectedResult: 'User is successfully logged in and redirected to their dashboard.' },
-        { id: 'TC-GEMINI-002', title: 'User sees error on login with invalid password', steps: ['1. Enter valid email', '2. Enter an incorrect password', '3. Click "Log In"'], expectedResult: 'An error message "Invalid credentials" is shown below the password field.' },
-    ],
-    'suite-proj-voyager': [
-        { id: 'TC-VOYAGER-001', title: 'Generate a sales report for the last month', steps: ['1. Navigate to the "Reports" section', '2. Select "Sales Report"', '3. Set the date range to "Last Month"', '4. Click the "Generate" button'], expectedResult: 'A PDF of the sales report is downloaded.' },
-    ],
+// --- SINGLE SOURCE OF TRUTH MOCK DATABASE ---
+
+interface SuiteData {
+    name: string;
+    testCases: TestCase[];
+}
+
+const MOCK_DB: { [key: string]: SuiteData } = {
+    'suite-proj-apollo': {
+        name: 'Project Apollo - Core Features',
+        testCases: [
+            { id: 'TC-APOLLO-001', title: 'User can view the main dashboard', steps: ['1. Log in', '2. Navigate to the dashboard URL'], expectedResult: 'The main dashboard with widgets is displayed.' },
+            { id: 'TC-APOLLO-002', title: 'User can log out from profile menu', steps: ['1. Click the profile icon', '2. Click "Log Out"'], expectedResult: 'User is redirected to the login page.' },
+        ]
+    },
+    'suite-proj-gemini': {
+        name: 'Project Gemini - User Authentication',
+        testCases: [
+            { id: 'TC-GEMINI-001', title: 'User can log in with valid credentials', steps: ['1. Enter valid email', '2. Enter valid password', '3. Click "Log In"'], expectedResult: 'User is successfully logged in and redirected to their dashboard.' },
+            { id: 'TC-GEMINI-002', title: 'User sees error on login with invalid password', steps: ['1. Enter valid email', '2. Enter an incorrect password', '3. Click "Log In"'], expectedResult: 'An error message "Invalid credentials" is shown below the password field.' },
+        ]
+    },
+    'suite-proj-voyager': {
+        name: 'Project Voyager - Reporting Module',
+        testCases: [
+            { id: 'TC-VOYAGER-001', title: 'Generate a sales report for the last month', steps: ['1. Navigate to the "Reports" section', '2. Select "Sales Report"', '3. Set the date range to "Last Month"', '4. Click the "Generate" button'], expectedResult: 'A PDF of the sales report is downloaded.' },
+        ]
+    },
 };
 
-// Allows the frontend to register a new, empty suite in our mock DB.
-export const registerNewSuite = (suiteId: string) => {
-    if (!MOCK_TEST_SUITES_DB[suiteId]) {
-        MOCK_TEST_SUITES_DB[suiteId] = [];
-        console.log(`Registered new empty suite with ID: ${suiteId}`);
+// --- SUITE MANAGEMENT API ---
+
+// Simulating async behavior for future backend integration
+export const getSuites = async (): Promise<{ id: string; name: string }[]> => {
+    return Object.entries(MOCK_DB).map(([id, data]) => ({ id, name: data.name }));
+};
+
+export const registerNewSuite = async (suiteName: string): Promise<{ id: string; name: string }> => {
+    const suiteId = `suite-custom-${Date.now()}`;
+    if (!MOCK_DB[suiteId]) {
+        MOCK_DB[suiteId] = {
+            name: suiteName,
+            testCases: []
+        };
+        console.log(`Registered new suite: ${suiteName} (ID: ${suiteId})`);
     }
+    return { id: suiteId, name: suiteName };
+};
+
+export const deleteSuite = async (suiteId: string): Promise<boolean> => {
+    if (MOCK_DB[suiteId]) {
+        delete MOCK_DB[suiteId];
+        console.log(`Deleted suite with ID: ${suiteId}`);
+        return true;
+    }
+    console.warn(`Attempted to delete non-existent suite with ID: ${suiteId}`);
+    return false;
 };
 
 
 // This function simulates the "Retrieval" part of RAG.
-// In a real system, this would be a backend call that performs a semantic search.
 const getRetrievedContext = (suiteId: string): string => {
-    const suiteTests = MOCK_TEST_SUITES_DB[suiteId];
-    if (!suiteTests || suiteTests.length === 0) {
+    const suiteData = MOCK_DB[suiteId];
+    if (!suiteData || suiteData.testCases.length === 0) {
         return "No existing test cases were found for this suite.";
     }
 
     // Format the retrieved tests into a string for the prompt
-    const contextString = suiteTests.map(tc =>
+    const contextString = suiteData.testCases.map(tc =>
         `ID: ${tc.id}\nTitle: ${tc.title}\nSteps: ${tc.steps.join('; ')}\nExpected Result: ${tc.expectedResult}`
     ).join('\n---\n');
 

@@ -1,8 +1,8 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { InputMode } from '../types';
 import { TextIcon } from './icons/TextIcon';
 import { ImageIcon } from './icons/ImageIcon';
-import { registerNewSuite } from '../services/geminiService';
+import { getSuites, registerNewSuite } from '../services/geminiService';
 
 
 interface InputSectionProps {
@@ -10,26 +10,29 @@ interface InputSectionProps {
   isLoading: boolean;
 }
 
-// In a real app, this would be fetched from the backend.
-const INITIAL_SUITES = [
-    { id: 'suite-proj-apollo', name: 'Project Apollo - Core Features' },
-    { id: 'suite-proj-gemini', name: 'Project Gemini - User Authentication' },
-    { id: 'suite-proj-voyager', name: 'Project Voyager - Reporting Module' },
-];
-
 export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) => {
   const [mode, setMode] = useState<InputMode>(InputMode.Text);
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   
-  const [suites, setSuites] = useState(INITIAL_SUITES);
-  const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(INITIAL_SUITES[0].id);
+  const [suites, setSuites] = useState<{id: string, name: string}[]>([]);
+  const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(null);
   
   const [isIndexing, setIsIndexing] = useState<boolean>(false);
   const [isCreatingSuite, setIsCreatingSuite] = useState<boolean>(false);
   const [newSuiteName, setNewSuiteName] = useState('');
 
+  useEffect(() => {
+    const fetchSuites = async () => {
+      const fetchedSuites = await getSuites();
+      setSuites(fetchedSuites);
+      if (fetchedSuites.length > 0 && !selectedSuiteId) {
+        setSelectedSuiteId(fetchedSuites[0].id);
+      }
+    };
+    fetchSuites();
+  }, [selectedSuiteId]);
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -59,18 +62,16 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
       }
   }
   
-  const handleSaveNewSuite = () => {
+  const handleSaveNewSuite = async () => {
     if (!newSuiteName.trim()) return;
 
-    const newSuiteId = `suite-custom-${Date.now()}`;
-    const newSuite = { id: newSuiteId, name: newSuiteName.trim() };
-
-    // 1. Update component state
+    // 1. "Inform" the backend by calling the service.
+    // The service now handles ID generation and returns the new suite object.
+    const newSuite = await registerNewSuite(newSuiteName.trim());
+    
+    // 2. Update component state with the confirmed new suite
     setSuites(prevSuites => [...prevSuites, newSuite]);
-    setSelectedSuiteId(newSuiteId);
-
-    // 2. "Inform" the backend by calling the service
-    registerNewSuite(newSuiteId);
+    setSelectedSuiteId(newSuite.id);
     
     // 3. Reset UI
     setNewSuiteName('');
