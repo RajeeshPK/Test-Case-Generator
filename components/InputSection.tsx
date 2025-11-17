@@ -2,6 +2,8 @@ import React, { useState, useCallback, useRef } from 'react';
 import { InputMode } from '../types';
 import { TextIcon } from './icons/TextIcon';
 import { ImageIcon } from './icons/ImageIcon';
+import { registerNewSuite } from '../services/geminiService';
+
 
 interface InputSectionProps {
   onGenerate: (mode: InputMode, data: string | File, suiteId: string | null) => void;
@@ -9,7 +11,7 @@ interface InputSectionProps {
 }
 
 // In a real app, this would be fetched from the backend.
-const MOCK_SUITES = [
+const INITIAL_SUITES = [
     { id: 'suite-proj-apollo', name: 'Project Apollo - Core Features' },
     { id: 'suite-proj-gemini', name: 'Project Gemini - User Authentication' },
     { id: 'suite-proj-voyager', name: 'Project Voyager - Reporting Module' },
@@ -20,8 +22,14 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(MOCK_SUITES[0].id);
+  
+  const [suites, setSuites] = useState(INITIAL_SUITES);
+  const [selectedSuiteId, setSelectedSuiteId] = useState<string | null>(INITIAL_SUITES[0].id);
+  
   const [isIndexing, setIsIndexing] = useState<boolean>(false);
+  const [isCreatingSuite, setIsCreatingSuite] = useState<boolean>(false);
+  const [newSuiteName, setNewSuiteName] = useState('');
+
   
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -50,18 +58,37 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
           }, 3000); // Simulate a 3-second indexing job
       }
   }
+  
+  const handleSaveNewSuite = () => {
+    if (!newSuiteName.trim()) return;
+
+    const newSuiteId = `suite-custom-${Date.now()}`;
+    const newSuite = { id: newSuiteId, name: newSuiteName.trim() };
+
+    // 1. Update component state
+    setSuites(prevSuites => [...prevSuites, newSuite]);
+    setSelectedSuiteId(newSuiteId);
+
+    // 2. "Inform" the backend by calling the service
+    registerNewSuite(newSuiteId);
+    
+    // 3. Reset UI
+    setNewSuiteName('');
+    setIsCreatingSuite(false);
+  };
+
 
   const handleGenerateClick = useCallback(() => {
-    if (isLoading || isIndexing) return;
+    if (isLoading || isIndexing || isCreatingSuite) return;
 
     if (mode === InputMode.Text && text.trim()) {
       onGenerate(InputMode.Text, text, selectedSuiteId);
     } else if (mode === InputMode.Screenshot && file) {
       onGenerate(InputMode.Screenshot, file, selectedSuiteId);
     }
-  }, [mode, text, file, selectedSuiteId, isLoading, isIndexing, onGenerate]);
+  }, [mode, text, file, selectedSuiteId, isLoading, isIndexing, isCreatingSuite, onGenerate]);
   
-  const isGenerateDisabled = isLoading || isIndexing || (mode === InputMode.Text && !text.trim()) || (mode === InputMode.Screenshot && !file);
+  const isGenerateDisabled = isLoading || isIndexing || isCreatingSuite || (mode === InputMode.Text && !text.trim()) || (mode === InputMode.Screenshot && !file);
 
   return (
     <div className="bg-gray-800/50 rounded-xl border border-gray-700 shadow-lg p-6 backdrop-blur-sm">
@@ -87,7 +114,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
             onChange={(e) => setText(e.target.value)}
             placeholder="Paste your feature requirements, user stories, or acceptance criteria here..."
             className="w-full h-48 p-4 bg-gray-900/70 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 resize-y"
-            disabled={isLoading || isIndexing}
+            disabled={isLoading || isIndexing || isCreatingSuite}
           />
         ) : (
           <div className="flex flex-col items-center justify-center w-full">
@@ -104,7 +131,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
                   <p className="text-xs">PNG, JPG or GIF</p>
                 </div>
               )}
-              <input id="dropzone-file" type="file" className="hidden" onChange={handleFileChange} accept="image/*" disabled={isLoading || isIndexing} />
+              <input id="dropzone-file" type="file" className="hidden" onChange={handleFileChange} accept="image/*" disabled={isLoading || isIndexing || isCreatingSuite} />
             </label>
           </div>
         )}
@@ -112,25 +139,51 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
       
       <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-            <label htmlFor="suite-select" className="block mb-2 text-sm font-medium text-gray-300">
-                Select Contextual Test Suite
-            </label>
+            <div className="flex justify-between items-center mb-2">
+                <label htmlFor="suite-select" className="block text-sm font-medium text-gray-300">
+                    Select Contextual Test Suite
+                </label>
+                <button 
+                    onClick={() => setIsCreatingSuite(true)}
+                    disabled={isLoading || isIndexing || isCreatingSuite}
+                    className="text-xs font-semibold text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    + New
+                </button>
+            </div>
             <select 
                 id="suite-select" 
                 value={selectedSuiteId ?? ''}
                 onChange={(e) => setSelectedSuiteId(e.target.value)}
                 className="bg-gray-900/70 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
-                disabled={isLoading || isIndexing}
+                disabled={isLoading || isIndexing || isCreatingSuite}
             >
-                {MOCK_SUITES.map(suite => (
+                {suites.map(suite => (
                     <option key={suite.id} value={suite.id}>{suite.name}</option>
                 ))}
             </select>
             <p className="mt-1 text-xs text-gray-500">The AI will use this suite for context and style matching.</p>
+
+            {isCreatingSuite && (
+                <div className="mt-3 bg-gray-900/50 p-3 rounded-lg border border-gray-700">
+                    <input
+                        type="text"
+                        value={newSuiteName}
+                        onChange={(e) => setNewSuiteName(e.target.value)}
+                        placeholder="Enter new suite name"
+                        className="bg-gray-800 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2"
+                        autoFocus
+                    />
+                    <div className="flex justify-end space-x-2 mt-2">
+                        <button onClick={() => setIsCreatingSuite(false)} className="px-3 py-1 text-xs font-medium text-gray-300 rounded-md hover:bg-gray-700">Cancel</button>
+                        <button onClick={handleSaveNewSuite} className="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-600" disabled={!newSuiteName.trim()}>Save</button>
+                    </div>
+                </div>
+            )}
         </div>
         <div>
             <label htmlFor="index-file-input" className="block mb-2 text-sm font-medium text-gray-300">
-                {isIndexing ? 'Indexing New Suite...' : 'Index a New Test Suite'}
+                {isIndexing ? 'Indexing New Suite...' : 'Index an Existing Suite'}
             </label>
              <div className="relative">
                 <input 
@@ -139,7 +192,7 @@ export const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoadin
                     type="file"
                     onChange={handleIndexSuite}
                     accept=".txt,.md,.xlsx"
-                    disabled={isLoading || isIndexing}
+                    disabled={isLoading || isIndexing || isCreatingSuite}
                 />
                  {isIndexing && (
                     <div className="absolute inset-y-0 right-0 flex items-center pr-3">

@@ -51,6 +51,14 @@ const MOCK_TEST_SUITES_DB: { [key: string]: TestCase[] } = {
     ],
 };
 
+// Allows the frontend to register a new, empty suite in our mock DB.
+export const registerNewSuite = (suiteId: string) => {
+    if (!MOCK_TEST_SUITES_DB[suiteId]) {
+        MOCK_TEST_SUITES_DB[suiteId] = [];
+        console.log(`Registered new empty suite with ID: ${suiteId}`);
+    }
+};
+
 
 // This function simulates the "Retrieval" part of RAG.
 // In a real system, this would be a backend call that performs a semantic search.
