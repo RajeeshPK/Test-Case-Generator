@@ -1,13 +1,28 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
-import { TestCase } from '../types';
+import { TestCase, AppSettings, LLMProvider, DEFAULT_SETTINGS } from '../types';
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable not set");
-}
+// --- SETTINGS MANAGEMENT ---
+let currentSettings: AppSettings = { ...DEFAULT_SETTINGS };
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const updateGenAISettings = (settings: AppSettings) => {
+    currentSettings = settings;
+    console.log("LLM Provider updated:", currentSettings.provider);
+};
 
-const testCaseSchema = {
+// --- CLIENT MANAGEMENT ---
+
+const getGeminiClient = () => {
+    const apiKey = currentSettings.geminiApiKey || process.env.API_KEY;
+    if (!apiKey) {
+        throw new Error("Google Gemini API Key is missing. Please set it in Settings or ensure API_KEY is in environment variables.");
+    }
+    return new GoogleGenAI({ apiKey });
+};
+
+// --- SCHEMA DEFINITIONS ---
+
+const testCaseSchemaObj = {
     type: Type.OBJECT,
     properties: {
         id: {
@@ -33,7 +48,53 @@ const testCaseSchema = {
 
 const testCasesSchema = {
     type: Type.ARRAY,
-    items: testCaseSchema
+    items: testCaseSchemaObj
+};
+
+// Helper for Local LLM to understand structure since we can't pass the Schema object directly
+const JSON_STRUCTURE_PROMPT = `
+You MUST respond with valid JSON only. The response should be an array of objects matching this structure:
+[
+  {
+    "id": "TC-001",
+    "title": "Test Title",
+    "steps": ["Step 1", "Step 2"],
+    "expectedResult": "Expected Result"
+  }
+]
+`;
+
+// --- UTILITY: DEDUPLICATION ---
+
+const normalizeForComparison = (str: string) => str.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+
+const getJaccardSimilarity = (str1: string, str2: string) => {
+    const set1 = new Set(normalizeForComparison(str1).split(/\s+/));
+    const set2 = new Set(normalizeForComparison(str2).split(/\s+/));
+    
+    if (set1.size === 0 || set2.size === 0) return 0.0;
+
+    const intersection = new Set([...set1].filter(x => set2.has(x)));
+    const union = new Set([...set1, ...set2]);
+    
+    return intersection.size / union.size;
+};
+
+const isDuplicate = (newCase: TestCase, existingCases: TestCase[]): boolean => {
+    return existingCases.some(existing => {
+        // Check Title Similarity
+        const titleSim = getJaccardSimilarity(newCase.title, existing.title);
+        if (titleSim > 0.75) return true; // High threshold for title similarity
+
+        // Check Content Similarity (Steps + Result combined)
+        const newContent = `${newCase.steps.join(' ')} ${newCase.expectedResult}`;
+        const existingContent = `${existing.steps.join(' ')} ${existing.expectedResult}`;
+        const contentSim = getJaccardSimilarity(newContent, existingContent);
+        
+        if (contentSim > 0.85) return true; // Very high threshold for content similarity
+
+        return false;
+    });
 };
 
 // --- SINGLE SOURCE OF TRUTH MOCK DATABASE ---
@@ -68,7 +129,6 @@ const MOCK_DB: { [key: string]: SuiteData } = {
 
 // --- SUITE MANAGEMENT API ---
 
-// Simulating async behavior for future backend integration
 export const getSuites = async (): Promise<{ id: string; name: string }[]> => {
     return Object.entries(MOCK_DB).map(([id, data]) => ({ id, name: data.name }));
 };
@@ -96,20 +156,58 @@ export const deleteSuite = async (suiteId: string): Promise<boolean> => {
 };
 
 
-// This function simulates the "Retrieval" part of RAG.
 const getRetrievedContext = (suiteId: string): string => {
     const suiteData = MOCK_DB[suiteId];
     if (!suiteData || suiteData.testCases.length === 0) {
         return "No existing test cases were found for this suite.";
     }
 
-    // Format the retrieved tests into a string for the prompt
     const contextString = suiteData.testCases.map(tc =>
         `ID: ${tc.id}\nTitle: ${tc.title}\nSteps: ${tc.steps.join('; ')}\nExpected Result: ${tc.expectedResult}`
     ).join('\n---\n');
 
     return contextString;
 };
+
+// --- OLLAMA HELPER ---
+
+const generateWithOllama = async (prompt: string, images?: string[]): Promise<string> => {
+    const endpoint = `${currentSettings.ollamaBaseUrl.replace(/\/$/, '')}/api/generate`;
+    
+    try {
+        const body: any = {
+            model: currentSettings.ollamaModel,
+            prompt: prompt,
+            format: 'json',
+            stream: false,
+        };
+
+        if (images && images.length > 0) {
+            body.images = images;
+        }
+
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Ollama API Error: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data.response;
+    } catch (error) {
+        console.error("Ollama Connection Failed:", error);
+        throw new Error(`Failed to connect to Local LLM at ${currentSettings.ollamaBaseUrl}. Ensure Ollama is running and the model '${currentSettings.ollamaModel}' is pulled.`);
+    }
+};
+
+
+// --- GENERATION FUNCTIONS ---
 
 export const generateRequirementsFromSuite = async (suiteId: string): Promise<string> => {
     const suiteData = MOCK_DB[suiteId];
@@ -132,24 +230,32 @@ ${contextString}
 Based on the test cases provided, what are the core requirements of this feature or application?`;
 
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
-            contents: prompt,
-        });
-        return response.text;
+        if (currentSettings.provider === LLMProvider.Ollama) {
+             return await generateWithOllama(prompt);
+        } else {
+            const ai = getGeminiClient();
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-pro',
+                contents: prompt,
+            });
+            return response.text;
+        }
     } catch (error) {
-        console.error("Error generating requirements from suite:", error);
-        throw new Error("Failed to generate requirements from the AI. Please try again.");
+        console.error("Error generating requirements:", error);
+        throw new Error("Failed to generate requirements. " + (error instanceof Error ? error.message : ''));
     }
 };
 
 
-// Updated createPrompt to accept the actual retrieved context
 const createPrompt = (requirements: string, contextType: string, retrievedContext?: string | null): string => {
-    if (retrievedContext) {
-        // This prompt now INCLUDES the retrieved context, making the gap analysis real.
-        return `You are an expert Senior QA Engineer performing a gap analysis.
-Your task is to analyze new requirements against a set of existing, relevant test cases retrieved from our test suite.
+    let basePrompt = '';
+    
+    // Check if context exists and isn't just the "No existing test cases" message
+    if (retrievedContext && !retrievedContext.startsWith("No existing")) {
+        basePrompt = `You are an expert Senior QA Engineer performing a strict gap analysis.
+Your task is to analyze new requirements against a set of existing test cases retrieved from our test suite.
+
+OBJECTIVE: Generate ONLY test cases that cover functionality NOT present in the "RETRIEVED CONTEXT".
 
 --- RETRIEVED CONTEXT (EXISTING TESTS) ---
 ${retrievedContext}
@@ -160,17 +266,21 @@ Now, analyze the following NEW ${contextType}.
 ${requirements}
 --- END OF NEW ${contextType} ---
 
-Based on this, generate **only the new, unique test cases** required to fill coverage gaps.
-
-Key Instructions:
-1.  **Analyze Context:** Carefully review the existing tests in the RETRIEVED CONTEXT. Your primary goal is to avoid duplicating functionality already covered by them.
-2.  **Match Style:** Ensure the generated test cases match the style, format, and tone of the retrieved examples.
-3.  **Gap Analysis:** Focus exclusively on requirements not covered by the existing tests.
-4.  **Empty Response:** If the new ${contextType} is already fully covered by the retrieved context, you MUST return an empty JSON array.
-
-Generate the new test cases based on these instructions.`;
+INSTRUCTIONS:
+1.  **Strict Deduplication:** Do not generate test cases for scenarios that are already covered in the RETRIEVED CONTEXT. If a test case exists for "User Login", do not create another "Verify Login" unless it covers a completely new edge case.
+2.  **Gap Analysis:** Focus exclusively on requirements not covered by the existing tests.
+3.  **Consistency:** Ensure new test cases match the granularity and style of the RETRIEVED CONTEXT.
+4.  **Return Empty:** If the new ${contextType} is already fully covered by the retrieved context, you MUST return an empty JSON array [].`;
+    } else {
+        basePrompt = `You are an expert Senior QA Engineer. Based on the following requirements, generate a comprehensive list of test cases. The requirements are: \n\n${requirements}`;
     }
-    return `You are an expert Senior QA Engineer. Based on the following requirements, generate a comprehensive list of test cases. The requirements are: \n\n${requirements}`;
+
+    // For local LLM, we append the JSON instructions explicitly
+    if (currentSettings.provider === LLMProvider.Ollama) {
+        return `${basePrompt}\n\n${JSON_STRUCTURE_PROMPT}`;
+    }
+    
+    return basePrompt;
 };
 
 export const generateTestCasesFromText = async (requirements: string, suiteId?: string | null): Promise<TestCase[]> => {
@@ -181,22 +291,51 @@ export const generateTestCasesFromText = async (requirements: string, suiteId?: 
     const prompt = createPrompt(requirements, "REQUIREMENTS", retrievedContext);
 
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: testCasesSchema,
-            }
-        });
+        let jsonText = '';
 
-        const jsonText = response.text.trim();
-        // Handle cases where the model correctly returns an empty string for an empty array
-        if (jsonText === "") return [];
-        return JSON.parse(jsonText);
+        if (currentSettings.provider === LLMProvider.Ollama) {
+            jsonText = await generateWithOllama(prompt);
+        } else {
+            const ai = getGeminiClient();
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-pro',
+                contents: prompt,
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: testCasesSchema,
+                }
+            });
+            jsonText = response.text;
+        }
+
+        jsonText = jsonText.trim();
+        if (jsonText === "" || jsonText === "[]") return [];
+        
+        if (jsonText.startsWith('```json')) {
+            jsonText = jsonText.replace(/^```json\n/, '').replace(/\n```$/, '');
+        }
+        if (jsonText.startsWith('```')) {
+             jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '');
+        }
+
+        const parsedCases: TestCase[] = JSON.parse(jsonText);
+        let finalCases = parsedCases;
+
+        // Post-processing deduplication
+        if (suiteId && MOCK_DB[suiteId]) {
+            const existingCases = MOCK_DB[suiteId].testCases;
+            if (existingCases.length > 0) {
+                finalCases = parsedCases.filter(tc => !isDuplicate(tc, existingCases));
+                if (parsedCases.length !== finalCases.length) {
+                    console.log(`Deduplicated ${parsedCases.length - finalCases.length} test cases.`);
+                }
+            }
+        }
+
+        return finalCases;
     } catch (error) {
         console.error("Error generating test cases from text:", error);
-        throw new Error("Failed to parse test cases from the AI's response. The format might be invalid.");
+        throw new Error("Failed to generate/parse test cases. " + (error instanceof Error ? error.message : ''));
     }
 };
 
@@ -206,32 +345,58 @@ export const generateTestCasesFromScreenshot = async (image: { data: string; mim
         retrievedContext = getRetrievedContext(suiteId);
     }
     
-    const imagePart = {
-        inlineData: { data: image.data, mimeType: image.mimeType },
-    };
-    
     const textPrompt = createPrompt("Analyze the following screenshot of a user interface. Based on the visible UI elements and their potential functionality, generate test cases.", "UI SCREENSHOT", retrievedContext);
 
-    const textPart = {
-        text: textPrompt
-    };
-
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: { parts: [textPart, imagePart] },
-             config: {
-                responseMimeType: "application/json",
-                responseSchema: testCasesSchema,
-            }
-        });
+        let jsonText = '';
+
+        if (currentSettings.provider === LLMProvider.Ollama) {
+            jsonText = await generateWithOllama(textPrompt, [image.data]);
+        } else {
+            const ai = getGeminiClient();
+            const imagePart = {
+                inlineData: { data: image.data, mimeType: image.mimeType },
+            };
+            const textPart = { text: textPrompt };
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: { parts: [textPart, imagePart] },
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: testCasesSchema,
+                }
+            });
+            jsonText = response.text;
+        }
         
-        const jsonText = response.text.trim();
-        // Handle cases where the model correctly returns an empty string for an empty array
-        if (jsonText === "") return [];
-        return JSON.parse(jsonText);
+        jsonText = jsonText.trim();
+        if (jsonText === "" || jsonText === "[]") return [];
+
+        if (jsonText.startsWith('```json')) {
+            jsonText = jsonText.replace(/^```json\n/, '').replace(/\n```$/, '');
+        }
+        if (jsonText.startsWith('```')) {
+             jsonText = jsonText.replace(/^```\n/, '').replace(/\n```$/, '');
+        }
+
+        const parsedCases: TestCase[] = JSON.parse(jsonText);
+        let finalCases = parsedCases;
+
+        // Post-processing deduplication
+        if (suiteId && MOCK_DB[suiteId]) {
+            const existingCases = MOCK_DB[suiteId].testCases;
+            if (existingCases.length > 0) {
+                finalCases = parsedCases.filter(tc => !isDuplicate(tc, existingCases));
+                if (parsedCases.length !== finalCases.length) {
+                    console.log(`Deduplicated ${parsedCases.length - finalCases.length} test cases.`);
+                }
+            }
+        }
+
+        return finalCases;
     } catch (error) {
         console.error("Error generating test cases from screenshot:", error);
-        throw new Error("Failed to parse test cases from the AI's response. The format might be invalid.");
+        throw new Error("Failed to generate/parse test cases. " + (error instanceof Error ? error.message : ''));
     }
 };
